@@ -79,6 +79,37 @@ After building, the artefacts are written under `build/AudioPolish_artefacts/`:
   `~/Library/Audio/Plug-Ins/VST3` on macOS)
 - `Standalone/Audio Polish` — runs without a host
 
+## Windows installer
+
+A Windows installer is produced with [Inno Setup](https://jrsoftware.org/isinfo.php).
+It installs the VST3 into the shared `Common Files\VST3` folder and, optionally, the
+standalone app.
+
+### Via CI (recommended)
+
+The [`Windows Installer`](.github/workflows/windows-installer.yml) GitHub Actions
+workflow builds the plugin with MSVC and compiles the installer on every push and on
+manual dispatch:
+
+1. Open the **Actions** tab → **Windows Installer** → **Run workflow** (or just push).
+2. Download the `AudioPolish-Windows-Installer` artifact from the finished run.
+
+Pushing a `v*` tag (e.g. `v1.0.0`) additionally attaches the installer to a GitHub
+Release.
+
+### Building the installer locally (on Windows)
+
+```powershell
+# 1. Build the plugin (MSVC)
+cmake -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release --parallel
+
+# 2. Compile the installer (Inno Setup 6 must be installed)
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=1.0.0 installer\AudioPolish.iss
+```
+
+The installer is written to `installer\Output\AudioPolish-<version>-Windows-x64.exe`.
+
 ## Layout
 
 ```
@@ -87,5 +118,9 @@ source/
   ParameterIDs.h        # parameter ids, ranges, defaults (single source of truth)
   PolishChain.h         # the DSP signal chain
   PluginProcessor.*     # AudioProcessor + APVTS wiring
-  PluginEditor.*        # GUI: look-and-feel, knobs, meter
+  PluginEditor.*        # GUI: look-and-feel, knobs, meters
+installer/
+  AudioPolish.iss       # Inno Setup installer script (Windows)
+.github/workflows/
+  windows-installer.yml # CI: build on Windows + package installer
 ```
