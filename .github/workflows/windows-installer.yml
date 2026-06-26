@@ -9,9 +9,14 @@ on:
     branches: [ main, master, 'claude/**' ]
     tags: [ 'v*' ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Create a release with this tag (e.g. v1.0.0). Leave blank for a plain CI build."
+        required: false
+        default: ""
 
 permissions:
-  contents: write   # needed to attach the installer to a Release on tags
+  contents: write   # needed to create the tag/release and upload the installer
 
 jobs:
   build:
@@ -24,14 +29,22 @@ jobs:
       - name: Resolve version
         id: ver
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
         run: |
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
-            $v = $env:GITHUB_REF_NAME -replace '^v',''
+            $tag = $env:GITHUB_REF_NAME
+            $v   = $tag -replace '^v',''
+          } elseif ($env:RELEASE_TAG) {
+            $tag = $env:RELEASE_TAG
+            $v   = $tag -replace '^v',''
           } else {
-            $v = '1.0.0-dev+' + $env:GITHUB_SHA.Substring(0,7)
+            $tag = ''
+            $v   = '1.0.0-dev+' + $env:GITHUB_SHA.Substring(0,7)
           }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          Write-Host "Resolved version: $v"
+          "tag=$tag"   | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Resolved version: $v (tag: '$tag')"
 
       # Set up MSVC explicitly rather than relying on a specific Visual Studio
       # generator, which breaks whenever the hosted runner image bumps its VS
@@ -67,8 +80,14 @@ jobs:
           path: installer/Output/*.exe
           if-no-files-found: error
 
-      - name: Attach installer to Release
-        if: startsWith(github.ref, 'refs/tags/v')
+      # Creates the tag (if it doesn't exist yet) at the current commit, makes
+      # the release, and uploads the installer. Runs on a v* tag push or when a
+      # release_tag was supplied via manual dispatch.
+      - name: Publish Release
+        if: steps.ver.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Audio Polish ${{ steps.ver.outputs.version }}
           files: installer/Output/*.exe
+          fail_on_unmatched_files: true
