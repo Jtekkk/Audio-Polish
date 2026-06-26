@@ -48,20 +48,32 @@ template <typename Sample>
 class PolishChain
 {
 public:
-    void prepare (const juce::dsp::ProcessSpec& spec)
+    /** @param osExponent  oversampling factor as a power of two for the
+                            saturation stage: 0 = off (1x), 1 = 2x, 2 = 4x, 3 = 8x. */
+    void prepare (const juce::dsp::ProcessSpec& spec, int osExponent)
     {
         sampleRate  = spec.sampleRate;
         numChannels = static_cast<int> (spec.numChannels);
 
-        // 2^3 == 8x oversampling around the saturation stage. Linear-phase FIR
-        // for a clean, symmetric impulse; integer latency keeps dry alignment exact.
-        oversampler = std::make_unique<juce::dsp::Oversampling<Sample>> (
-            spec.numChannels, 3,
-            juce::dsp::Oversampling<Sample>::filterHalfBandFIREquiripple,
-            true, true);
-        oversampler->initProcessing (spec.maximumBlockSize);
-        oversamplingFactor = static_cast<double> (oversampler->getOversamplingFactor());
-        latencySamples = static_cast<int> (std::round (oversampler->getLatencyInSamples()));
+        // Linear-phase FIR for a clean, symmetric impulse; integer latency keeps
+        // dry alignment exact. When osExponent is 0 the saturator runs at the
+        // base rate with no oversampler and no added latency.
+        if (osExponent > 0)
+        {
+            oversampler = std::make_unique<juce::dsp::Oversampling<Sample>> (
+                spec.numChannels, static_cast<size_t> (osExponent),
+                juce::dsp::Oversampling<Sample>::filterHalfBandFIREquiripple,
+                true, true);
+            oversampler->initProcessing (spec.maximumBlockSize);
+            oversamplingFactor = static_cast<double> (oversampler->getOversamplingFactor());
+            latencySamples = static_cast<int> (std::round (oversampler->getLatencyInSamples()));
+        }
+        else
+        {
+            oversampler.reset();
+            oversamplingFactor = 1.0;
+            latencySamples = 0;
+        }
 
         inputGain.prepare (spec);
         outputGain.prepare (spec);
@@ -254,31 +266,42 @@ private:
     void applySaturation (juce::AudioBuffer<Sample>& buffer)
     {
         juce::dsp::AudioBlock<Sample> block (buffer);
-        auto osBlock = oversampler->processSamplesUp (block);
 
-        const auto osSamples = static_cast<int> (osBlock.getNumSamples());
-        const auto osChans   = static_cast<int> (osBlock.getNumChannels());
+        if (oversampler != nullptr)
+        {
+            auto osBlock = oversampler->processSamplesUp (block);
+            shapeBlock (osBlock);
+            oversampler->processSamplesDown (block);
+        }
+        else
+        {
+            shapeBlock (block);
+        }
 
-        for (int n = 0; n < osSamples; ++n)
+        applyDCBlocker (buffer);
+    }
+
+    void shapeBlock (juce::dsp::AudioBlock<Sample>& b)
+    {
+        const auto numSamples = static_cast<int> (b.getNumSamples());
+        const auto numChans   = static_cast<int> (b.getNumChannels());
+
+        for (int n = 0; n < numSamples; ++n)
         {
             const auto k    = driveSmoothed.getNextValue();          // 0..1
             const auto g    = static_cast<Sample> (1) + k * static_cast<Sample> (3); // 1..4
             const auto norm = static_cast<Sample> (1) / std::tanh (g);
             const auto bias = static_cast<Sample> (0.25) * k;        // even-harmonic asymmetry
 
-            for (int ch = 0; ch < osChans; ++ch)
+            for (int ch = 0; ch < numChans; ++ch)
             {
-                auto* data = osBlock.getChannelPointer (static_cast<size_t> (ch));
+                auto* data = b.getChannelPointer (static_cast<size_t> (ch));
                 const auto x   = data[n];
                 const auto asy = x + bias * x * x;                   // adds even harmonics
                 const auto sat = std::tanh (g * asy) * norm;
                 data[n] = x * (static_cast<Sample> (1) - k) + sat * k; // dry/wet blend
             }
         }
-
-        oversampler->processSamplesDown (block);
-
-        applyDCBlocker (buffer);
     }
 
     void applyDCBlocker (juce::AudioBuffer<Sample>& buffer)

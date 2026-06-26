@@ -9,7 +9,7 @@ control underneath when you want it.
 ```
 Input gain
   -> Tone        (low shelf + high shelf, with a Tilt fold-in)
-  -> Drive       (asymmetric tanh saturation, 8x oversampled, DC-blocked)
+  -> Drive       (asymmetric tanh saturation, up to 8x oversampled, DC-blocked)
   -> Glue        (program-dependent compression)
   -> Width       (mid/side widening, low end kept mono as width increases)
   -> Output gain
@@ -22,8 +22,10 @@ knob does the heavy lifting; the individual controls trim from there.
 
 ### DSP quality notes
 
-- **Anti-aliased saturation** — the waveshaper runs inside an 8× oversampled,
-  linear-phase block, so the harmonics it generates don't fold back as aliasing.
+- **Anti-aliased saturation** — the waveshaper runs inside a selectable (2×/4×/8×),
+  linear-phase oversampled block, so the harmonics it generates don't fold back as
+  aliasing. Switching the factor (or Off) re-prepares the chain safely off the audio
+  thread and updates the reported latency.
 - **64-bit precision** — the entire chain is templated on sample type and runs in
   full double precision when the host requests it (`supportsDoublePrecisionProcessing`),
   falling back to 32-bit float otherwise.
@@ -49,6 +51,7 @@ knob does the heavy lifting; the individual controls trim from there.
 | Ceiling   | −12…0 dB         | Output limiter ceiling                                   |
 | Output    | −24…+24 dB       | Final trim before the ceiling limiter                   |
 | Mix       | 0…100 %          | Dry/wet blend (parallel "polish"), latency compensated  |
+| Oversampling | Off / 2× / 4× / 8× | Anti-aliasing for the saturator (CPU vs quality)     |
 | Bypass    | —                | Latency-compensated bypass                              |
 
 ## Building

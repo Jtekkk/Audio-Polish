@@ -18,29 +18,74 @@ AudioPolishProcessor::AudioPolishProcessor()
     ceilingParam = apvts.getRawParameterValue (ParamID::ceiling);
     outputParam  = apvts.getRawParameterValue (ParamID::output);
     mixParam     = apvts.getRawParameterValue (ParamID::mix);
+    osParam      = apvts.getRawParameterValue (ParamID::oversampling);
     bypassParam  = apvts.getRawParameterValue (ParamID::bypass);
+
+    apvts.addParameterListener (ParamID::oversampling, this);
 }
 
-void AudioPolishProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+AudioPolishProcessor::~AudioPolishProcessor()
 {
+    apvts.removeParameterListener (ParamID::oversampling, this);
+    cancelPendingUpdate();
+}
+
+int AudioPolishProcessor::oversamplingExponent() const noexcept
+{
+    // Choice indices map directly to the oversampling exponent: 0=Off, 1=2x, 2=4x, 3=8x.
+    return juce::jlimit (0, 3, juce::roundToInt (osParam->load()));
+}
+
+void AudioPolishProcessor::prepareChains()
+{
+    if (lastSampleRate <= 0.0)
+        return;
+
     juce::dsp::ProcessSpec spec;
-    spec.sampleRate       = sampleRate;
-    spec.maximumBlockSize = static_cast<juce::uint32> (samplesPerBlock);
+    spec.sampleRate       = lastSampleRate;
+    spec.maximumBlockSize = static_cast<juce::uint32> (lastBlockSize);
     spec.numChannels      = static_cast<juce::uint32> (getTotalNumOutputChannels());
+
+    const auto os = oversamplingExponent();
 
     // Prepare only the chain matching the host's requested precision; JUCE
     // re-calls prepareToPlay if the precision changes. Both share the same
     // oversampling latency.
     if (isUsingDoublePrecision())
     {
-        doubleChain.prepare (spec);
+        doubleChain.prepare (spec, os);
         setLatencySamples (doubleChain.getLatencySamples());
     }
     else
     {
-        floatChain.prepare (spec);
+        floatChain.prepare (spec, os);
         setLatencySamples (floatChain.getLatencySamples());
     }
+}
+
+void AudioPolishProcessor::parameterChanged (const juce::String& paramID, float)
+{
+    // Called from any thread; re-prepare on the message thread where allocation
+    // (and the wrapper's suspend handling) is safe.
+    if (paramID == ParamID::oversampling)
+        triggerAsyncUpdate();
+}
+
+void AudioPolishProcessor::handleAsyncUpdate()
+{
+    if (lastSampleRate <= 0.0)
+        return;
+
+    suspendProcessing (true);
+    prepareChains();
+    suspendProcessing (false);
+}
+
+void AudioPolishProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+{
+    lastSampleRate = sampleRate;
+    lastBlockSize  = samplesPerBlock;
+    prepareChains();
 }
 
 bool AudioPolishProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const

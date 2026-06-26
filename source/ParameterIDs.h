@@ -19,9 +19,10 @@ namespace ParamID
     inline constexpr auto glue    = "glue";
     inline constexpr auto width   = "width";
     inline constexpr auto ceiling = "ceiling";
-    inline constexpr auto output  = "output";
-    inline constexpr auto mix     = "mix";
-    inline constexpr auto bypass  = "bypass";
+    inline constexpr auto output       = "output";
+    inline constexpr auto mix          = "mix";
+    inline constexpr auto oversampling = "oversampling";
+    inline constexpr auto bypass       = "bypass";
 }
 
 namespace AudioPolishParams
@@ -30,6 +31,7 @@ namespace AudioPolishParams
     {
         using APF   = juce::AudioParameterFloat;
         using APB   = juce::AudioParameterBool;
+        using APC   = juce::AudioParameterChoice;
         using Range = juce::NormalisableRange<float>;
         using ID    = juce::ParameterID;
 
@@ -72,6 +74,15 @@ namespace AudioPolishParams
 
         params.push_back (std::make_unique<APF> (ID { ParamID::mix, version }, "Mix",
                                                  Range { 0.0f, 100.0f, 0.1f }, 100.0f));
+
+        // Oversampling factor for the saturation stage. Indices: 0=Off, 1=2x,
+        // 2=4x, 3=8x (the index doubles as the oversampling exponent). Marked
+        // meta / non-automatable: it's a quality setting, not a sound automation
+        // target, and changing it re-prepares the chain and alters latency.
+        params.push_back (std::make_unique<APC> (
+            ID { ParamID::oversampling, version }, "Oversampling",
+            juce::StringArray { "Off", "2x", "4x", "8x" }, 3,
+            juce::AudioParameterChoiceAttributes().withAutomatable (false).withMeta (true)));
 
         params.push_back (std::make_unique<APB> (ID { ParamID::bypass, version }, "Bypass", false));
 

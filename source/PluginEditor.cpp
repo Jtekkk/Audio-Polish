@@ -177,6 +177,18 @@ AudioPolishEditor::AudioPolishEditor (AudioPolishProcessor& p)
     addAndMakeVisible (outMeter);
     addAndMakeVisible (grMeter);
 
+    // Oversampling selector. The attachment fills the box from the parameter's
+    // choices, so no items are added manually here.
+    osLabel.setText ("OVERSAMPLING", juce::dontSendNotification);
+    osLabel.setJustificationType (juce::Justification::centred);
+    osLabel.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+    addAndMakeVisible (osLabel);
+
+    osBox.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (osBox);
+    osAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>
+                       (p.getValueTreeState(), ParamID::oversampling, osBox);
+
     setSize (640, 420);
     setResizable (true, true);
     setResizeLimits (520, 340, 1100, 720);
@@ -212,9 +224,12 @@ void AudioPolishEditor::resized()
     area.removeFromTop (54);              // header
     area.reduce (12, 12);
 
-    // right-hand column: GR + output meters, then bypass
+    // right-hand column: GR + output meters, oversampling selector, then bypass
     auto right = area.removeFromRight (84);
     bypassButton.setBounds (right.removeFromBottom (28));
+    right.removeFromBottom (6);
+    osBox.setBounds (right.removeFromBottom (24));
+    osLabel.setBounds (right.removeFromBottom (14));
     right.removeFromBottom (8);
     grMeter.setBounds  (right.removeFromLeft (right.getWidth() / 2).reduced (6, 0));
     outMeter.setBounds (right.reduced (6, 0));

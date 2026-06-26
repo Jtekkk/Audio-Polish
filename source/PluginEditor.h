@@ -73,6 +73,10 @@ private:
     juce::ToggleButton bypassButton { "Bypass" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
 
+    juce::Label osLabel;
+    juce::ComboBox osBox;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> osAttachment;
+
     LevelMeter outMeter, grMeter;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPolishEditor)

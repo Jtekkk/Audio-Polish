@@ -4,11 +4,13 @@
 #include "ParameterIDs.h"
 #include "PolishChain.h"
 
-class AudioPolishProcessor : public juce::AudioProcessor
+class AudioPolishProcessor : public juce::AudioProcessor,
+                             private juce::AudioProcessorValueTreeState::Listener,
+                             private juce::AsyncUpdater
 {
 public:
     AudioPolishProcessor();
-    ~AudioPolishProcessor() override = default;
+    ~AudioPolishProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -48,6 +50,13 @@ public:
 
 private:
     PolishSettings readSettings() const;
+    int  oversamplingExponent() const noexcept;
+    void prepareChains();
+
+    // Re-prepares the chain off the audio thread when the oversampling setting
+    // changes (re-preparing allocates and alters latency).
+    void parameterChanged (const juce::String& paramID, float newValue) override;
+    void handleAsyncUpdate() override;
 
     template <typename Sample>
     void processChain (juce::AudioBuffer<Sample>&, PolishChain<Sample>&);
@@ -55,6 +64,9 @@ private:
     juce::AudioProcessorValueTreeState apvts;
     PolishChain<float>  floatChain;
     PolishChain<double> doubleChain;
+
+    double lastSampleRate = 0.0;
+    int    lastBlockSize  = 0;
 
     std::atomic<float>* inputParam   = nullptr;
     std::atomic<float>* polishParam  = nullptr;
@@ -67,6 +79,7 @@ private:
     std::atomic<float>* ceilingParam = nullptr;
     std::atomic<float>* outputParam  = nullptr;
     std::atomic<float>* mixParam     = nullptr;
+    std::atomic<float>* osParam      = nullptr;
     std::atomic<float>* bypassParam  = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPolishProcessor)
