@@ -31,12 +31,17 @@ jobs:
         shell: pwsh
         env:
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          HEAD_MSG: ${{ github.event.head_commit.message }}
         run: |
           if ($env:GITHUB_REF -like 'refs/tags/v*') {
             $tag = $env:GITHUB_REF_NAME
             $v   = $tag -replace '^v',''
           } elseif ($env:RELEASE_TAG) {
             $tag = $env:RELEASE_TAG
+            $v   = $tag -replace '^v',''
+          } elseif ($env:HEAD_MSG -match '\[release\s+(v[0-9][^\]\s]*)\]') {
+            # A commit whose message contains e.g. "[release v1.0.0]" cuts a release.
+            $tag = $matches[1]
             $v   = $tag -replace '^v',''
           } else {
             $tag = ''
