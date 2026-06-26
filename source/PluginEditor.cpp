@@ -89,7 +89,8 @@ void LabeledKnob::resized()
 }
 
 //==============================================================================
-LevelMeter::LevelMeter (AudioPolishProcessor& p) : processor (p)
+LevelMeter::LevelMeter (std::function<float()> source, bool fillFromTop, juce::String cap)
+    : getValue (std::move (source)), fromTop (fillFromTop), caption (std::move (cap))
 {
     startTimerHz (30);
 }
@@ -98,9 +99,7 @@ LevelMeter::~LevelMeter() { stopTimer(); }
 
 void LevelMeter::timerCallback()
 {
-    const auto raw = juce::jlimit (0.0f, 1.0f,
-                                   juce::jmap (juce::Decibels::gainToDecibels (processor.getOutputLevel(), -60.0f),
-                                               -60.0f, 0.0f, 0.0f, 1.0f));
+    const auto raw = juce::jlimit (0.0f, 1.0f, getValue());
     // fast attack, slow release
     level = raw > level ? raw : level * 0.85f + raw * 0.15f;
     repaint();
@@ -108,17 +107,36 @@ void LevelMeter::timerCallback()
 
 void LevelMeter::paint (juce::Graphics& g)
 {
-    auto bounds = getLocalBounds().toFloat().reduced (1.0f);
+    auto area = getLocalBounds();
+    auto labelArea = area.removeFromBottom (14);
+
+    auto bounds = area.toFloat().reduced (1.0f);
     g.setColour (kTrack);
     g.fillRoundedRectangle (bounds, 3.0f);
 
-    const auto filled = bounds.withTop (bounds.getBottom() - bounds.getHeight() * level);
+    const auto filled = fromTop
+        ? bounds.withBottom (bounds.getY() + bounds.getHeight() * level)
+        : bounds.withTop (bounds.getBottom() - bounds.getHeight() * level);
 
-    juce::ColourGradient grad (juce::Colour (0xff66bb6a), bounds.getBottomLeft(),
-                               juce::Colour (0xffe53935), bounds.getTopLeft(), false);
-    grad.addColour (0.75, juce::Colour (0xffffb74d));
-    g.setGradientFill (grad);
+    if (fromTop)
+    {
+        // gain reduction: cool -> hot as more is applied
+        juce::ColourGradient grad (kAccent, bounds.getTopLeft(),
+                                   juce::Colour (0xffe53935), bounds.getBottomLeft(), false);
+        g.setGradientFill (grad);
+    }
+    else
+    {
+        juce::ColourGradient grad (juce::Colour (0xff66bb6a), bounds.getBottomLeft(),
+                                   juce::Colour (0xffe53935), bounds.getTopLeft(), false);
+        grad.addColour (0.75, juce::Colour (0xffffb74d));
+        g.setGradientFill (grad);
+    }
     g.fillRoundedRectangle (filled, 3.0f);
+
+    g.setColour (kText);
+    g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+    g.drawText (caption, labelArea, juce::Justification::centred);
 }
 
 //==============================================================================
@@ -134,12 +152,19 @@ AudioPolishEditor::AudioPolishEditor (AudioPolishProcessor& p)
       widthKnob   (p.getValueTreeState(), ParamID::width,   "WIDTH"),
       ceilingKnob (p.getValueTreeState(), ParamID::ceiling, "CEILING"),
       outputKnob  (p.getValueTreeState(), ParamID::output,  "OUTPUT"),
-      meter (p)
+      mixKnob     (p.getValueTreeState(), ParamID::mix,     "MIX"),
+      outMeter ([&p] { return juce::jlimit (0.0f, 1.0f,
+                          juce::jmap (juce::Decibels::gainToDecibels (p.getOutputLevel(), -60.0f),
+                                      -60.0f, 0.0f, 0.0f, 1.0f)); },
+                false, "OUT"),
+      grMeter  ([&p] { return juce::jlimit (0.0f, 1.0f,
+                          juce::jmap (p.getGainReduction(), -24.0f, 0.0f, 1.0f, 0.0f)); },
+                true, "GR")
 {
     setLookAndFeel (&lookAndFeel);
 
     for (auto* k : { &inputKnob, &polishKnob, &lowKnob, &highKnob, &tiltKnob,
-                     &driveKnob, &glueKnob, &widthKnob, &ceilingKnob, &outputKnob })
+                     &driveKnob, &glueKnob, &widthKnob, &ceilingKnob, &outputKnob, &mixKnob })
         addAndMakeVisible (k);
 
     // The Polish macro gets the warm accent to mark it as the headline control.
@@ -149,7 +174,8 @@ AudioPolishEditor::AudioPolishEditor (AudioPolishProcessor& p)
     bypassAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>
                            (p.getValueTreeState(), ParamID::bypass, bypassButton);
 
-    addAndMakeVisible (meter);
+    addAndMakeVisible (outMeter);
+    addAndMakeVisible (grMeter);
 
     setSize (640, 420);
     setResizable (true, true);
@@ -186,11 +212,12 @@ void AudioPolishEditor::resized()
     area.removeFromTop (54);              // header
     area.reduce (12, 12);
 
-    // right-hand column: meter + bypass
-    auto right = area.removeFromRight (70);
+    // right-hand column: GR + output meters, then bypass
+    auto right = area.removeFromRight (84);
     bypassButton.setBounds (right.removeFromBottom (28));
     right.removeFromBottom (8);
-    meter.setBounds (right.removeFromTop (right.getHeight()).reduced (18, 0));
+    grMeter.setBounds  (right.removeFromLeft (right.getWidth() / 2).reduced (6, 0));
+    outMeter.setBounds (right.reduced (6, 0));
 
     area.removeFromRight (12);
 
@@ -204,7 +231,7 @@ void AudioPolishEditor::resized()
     // The remaining controls fill a responsive grid below.
     juce::Array<LabeledKnob*> grid {
         &inputKnob, &lowKnob, &highKnob, &tiltKnob, &driveKnob,
-        &glueKnob, &widthKnob, &ceilingKnob, &outputKnob
+        &glueKnob, &widthKnob, &ceilingKnob, &outputKnob, &mixKnob
     };
 
     const int cols = 5;

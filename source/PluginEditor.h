@@ -33,11 +33,14 @@ private:
     std::unique_ptr<Attachment> attachment;
 };
 
-/** Thin vertical output meter. */
+/** Thin vertical meter driven by a caller-supplied 0..1 source.
+
+    Used both as an output level meter (fills from the bottom) and as a gain
+    reduction meter (fills from the top). */
 class LevelMeter : public juce::Component, private juce::Timer
 {
 public:
-    explicit LevelMeter (AudioPolishProcessor& p);
+    LevelMeter (std::function<float()> source, bool fillFromTop, juce::String caption);
     ~LevelMeter() override;
 
     void paint (juce::Graphics&) override;
@@ -45,8 +48,10 @@ public:
 private:
     void timerCallback() override;
 
-    AudioPolishProcessor& processor;
-    float level = 0.0f; // smoothed, in dB-ish 0..1 display range
+    std::function<float()> getValue;
+    bool fromTop;
+    juce::String caption;
+    float level = 0.0f; // smoothed 0..1 display range
 };
 
 class AudioPolishEditor : public juce::AudioProcessorEditor
@@ -63,12 +68,12 @@ private:
     PolishLookAndFeel lookAndFeel;
 
     LabeledKnob inputKnob, polishKnob, lowKnob, highKnob, tiltKnob,
-                driveKnob, glueKnob, widthKnob, ceilingKnob, outputKnob;
+                driveKnob, glueKnob, widthKnob, ceilingKnob, outputKnob, mixKnob;
 
     juce::ToggleButton bypassButton { "Bypass" };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
 
-    LevelMeter meter;
+    LevelMeter outMeter, grMeter;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPolishEditor)
 };

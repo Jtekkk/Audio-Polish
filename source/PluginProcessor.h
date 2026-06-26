@@ -13,6 +13,7 @@ public:
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+    using juce::AudioProcessor::processBlock; // keep the double-precision overload visible
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -36,6 +37,7 @@ public:
 
     juce::AudioProcessorValueTreeState& getValueTreeState() noexcept { return apvts; }
     float getOutputLevel() const noexcept { return chain.getOutputLevel(); }
+    float getGainReduction() const noexcept { return chain.getGainReduction(); }
 
 private:
     PolishChain::Settings readSettings() const;
@@ -53,6 +55,7 @@ private:
     std::atomic<float>* widthParam   = nullptr;
     std::atomic<float>* ceilingParam = nullptr;
     std::atomic<float>* outputParam  = nullptr;
+    std::atomic<float>* mixParam     = nullptr;
     std::atomic<float>* bypassParam  = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPolishProcessor)

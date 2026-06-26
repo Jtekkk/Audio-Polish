@@ -20,6 +20,7 @@ namespace ParamID
     inline constexpr auto width   = "width";
     inline constexpr auto ceiling = "ceiling";
     inline constexpr auto output  = "output";
+    inline constexpr auto mix     = "mix";
     inline constexpr auto bypass  = "bypass";
 }
 
@@ -68,6 +69,9 @@ namespace AudioPolishParams
 
         params.push_back (std::make_unique<APF> (ID { ParamID::output, version }, "Output",
                                                  db (-24.0f, 24.0f), 0.0f));
+
+        params.push_back (std::make_unique<APF> (ID { ParamID::mix, version }, "Mix",
+                                                 Range { 0.0f, 100.0f, 0.1f }, 100.0f));
 
         params.push_back (std::make_unique<APB> (ID { ParamID::bypass, version }, "Bypass", false));
 

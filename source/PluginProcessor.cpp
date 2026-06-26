@@ -17,6 +17,7 @@ AudioPolishProcessor::AudioPolishProcessor()
     widthParam   = apvts.getRawParameterValue (ParamID::width);
     ceilingParam = apvts.getRawParameterValue (ParamID::ceiling);
     outputParam  = apvts.getRawParameterValue (ParamID::output);
+    mixParam     = apvts.getRawParameterValue (ParamID::mix);
     bypassParam  = apvts.getRawParameterValue (ParamID::bypass);
 }
 
@@ -28,6 +29,7 @@ void AudioPolishProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     spec.numChannels      = static_cast<juce::uint32> (getTotalNumOutputChannels());
 
     chain.prepare (spec);
+    setLatencySamples (chain.getLatencySamples());
 }
 
 bool AudioPolishProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -55,6 +57,7 @@ PolishChain::Settings AudioPolishProcessor::readSettings() const
     s.width     = widthParam->load();
     s.ceilingDb = ceilingParam->load();
     s.outputDb  = outputParam->load();
+    s.mix       = mixParam->load();
     return s;
 }
 
@@ -68,7 +71,10 @@ void AudioPolishProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         buffer.clear (ch, 0, buffer.getNumSamples());
 
     if (bypassParam->load() > 0.5f)
+    {
+        chain.processBypassed (buffer);
         return;
+    }
 
     chain.setSettings (readSettings());
     chain.process (buffer);

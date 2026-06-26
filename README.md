@@ -9,15 +9,27 @@ control underneath when you want it.
 ```
 Input gain
   -> Tone        (low shelf + high shelf, with a Tilt fold-in)
-  -> Drive       (tanh harmonic saturation, dry/wet blended)
+  -> Drive       (asymmetric tanh saturation, 4x oversampled, DC-blocked)
   -> Glue        (program-dependent compression)
-  -> Width       (mid/side stereo widening)
+  -> Width       (mid/side widening, low end kept mono as width increases)
   -> Output gain
   -> Ceiling     (brick-wall limiter)
+  -> Mix         (latency-compensated dry/wet)
 ```
 
 The **Polish** macro pushes Drive, Glue, top-end "air" and Width together so a single
 knob does the heavy lifting; the individual controls trim from there.
+
+### DSP quality notes
+
+- **Anti-aliased saturation** — the waveshaper runs inside a 4× oversampled,
+  linear-phase block, so the harmonics it generates don't fold back as aliasing.
+- **Even-harmonic warmth** — the saturator is mildly asymmetric (tube-like) rather
+  than a pure odd-harmonic `tanh`; a DC blocker removes the resulting offset.
+- **Frequency-conscious width** — as Width goes past 100 %, the low end of the side
+  signal is progressively collapsed to mono so the bass stays centred and phase-safe.
+- **Latency reporting** — the oversampler's latency is reported to the host, and both
+  the dry/wet Mix path and Bypass are delay-compensated to stay sample-aligned.
 
 ## Controls
 
@@ -33,7 +45,8 @@ knob does the heavy lifting; the individual controls trim from there.
 | Width     | 0…200 %          | Stereo width (0 = mono, 100 = unchanged)                |
 | Ceiling   | −12…0 dB         | Output limiter ceiling                                   |
 | Output    | −24…+24 dB       | Final trim before the ceiling limiter                   |
-| Bypass    | —                | Hard bypass                                             |
+| Mix       | 0…100 %          | Dry/wet blend (parallel "polish"), latency compensated  |
+| Bypass    | —                | Latency-compensated bypass                              |
 
 ## Building
 
