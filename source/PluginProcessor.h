@@ -1,0 +1,59 @@
+#pragma once
+
+#include <juce_audio_processors/juce_audio_processors.h>
+#include "ParameterIDs.h"
+#include "PolishChain.h"
+
+class AudioPolishProcessor : public juce::AudioProcessor
+{
+public:
+    AudioPolishProcessor();
+    ~AudioPolishProcessor() override = default;
+
+    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void releaseResources() override {}
+    bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+
+    juce::AudioProcessorEditor* createEditor() override;
+    bool hasEditor() const override { return true; }
+
+    const juce::String getName() const override { return "Audio Polish"; }
+
+    bool acceptsMidi() const override  { return false; }
+    bool producesMidi() const override { return false; }
+    bool isMidiEffect() const override { return false; }
+    double getTailLengthSeconds() const override { return 0.0; }
+
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram (int) override {}
+    const juce::String getProgramName (int) override { return {}; }
+    void changeProgramName (int, const juce::String&) override {}
+
+    void getStateInformation (juce::MemoryBlock& destData) override;
+    void setStateInformation (const void* data, int sizeInBytes) override;
+
+    juce::AudioProcessorValueTreeState& getValueTreeState() noexcept { return apvts; }
+    float getOutputLevel() const noexcept { return chain.getOutputLevel(); }
+
+private:
+    PolishChain::Settings readSettings() const;
+
+    juce::AudioProcessorValueTreeState apvts;
+    PolishChain chain;
+
+    std::atomic<float>* inputParam   = nullptr;
+    std::atomic<float>* polishParam  = nullptr;
+    std::atomic<float>* lowParam     = nullptr;
+    std::atomic<float>* highParam    = nullptr;
+    std::atomic<float>* tiltParam    = nullptr;
+    std::atomic<float>* driveParam   = nullptr;
+    std::atomic<float>* glueParam    = nullptr;
+    std::atomic<float>* widthParam   = nullptr;
+    std::atomic<float>* ceilingParam = nullptr;
+    std::atomic<float>* outputParam  = nullptr;
+    std::atomic<float>* bypassParam  = nullptr;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPolishProcessor)
+};

@@ -1,0 +1,20 @@
+# Build output
+build/
+cmake-build-*/
+out/
+
+# JUCE / CMake fetched dependencies
+_deps/
+
+# IDE / editor
+.idea/
+.vscode/
+*.user
+.DS_Store
+
+# Compiled plugin artefacts
+*.vst3
+*.component
+*.so
+*.o
+*.a
