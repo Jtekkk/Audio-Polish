@@ -76,9 +76,12 @@ void AudioPolishProcessor::handleAsyncUpdate()
     if (lastSampleRate <= 0.0)
         return;
 
-    suspendProcessing (true);
+    // Re-preparing reallocates the oversampler and changes latency. Hold the
+    // callback lock so it can't race a concurrent processBlock — some hosts and
+    // validators (e.g. pluginval) call processBlock directly without honouring
+    // suspendProcessing, so that alone is not enough.
+    const juce::ScopedLock sl (getCallbackLock());
     prepareChains();
-    suspendProcessing (false);
 }
 
 void AudioPolishProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
@@ -122,6 +125,11 @@ void AudioPolishProcessor::processChain (juce::AudioBuffer<Sample>& buffer,
                                          PolishChain<Sample>& chain)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // Serialise against handleAsyncUpdate() re-preparing the chain when the
+    // oversampling setting changes. Uncontended this is a cheap lock; it only
+    // blocks briefly while the chain is being rebuilt.
+    const juce::ScopedLock sl (getCallbackLock());
 
     // Clear any output channels that don't carry input.
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
