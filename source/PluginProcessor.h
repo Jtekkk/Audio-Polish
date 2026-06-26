@@ -5,6 +5,7 @@
 #include "PolishChain.h"
 
 class AudioPolishProcessor : public juce::AudioProcessor,
+                             public  juce::ChangeBroadcaster,
                              private juce::AudioProcessorValueTreeState::Listener,
                              private juce::AsyncUpdater
 {
@@ -29,10 +30,10 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram (int) override;
+    const juce::String getProgramName (int) override;
     void changeProgramName (int, const juce::String&) override {}
 
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -67,6 +68,7 @@ private:
 
     double lastSampleRate = 0.0;
     int    lastBlockSize  = 0;
+    int    currentProgram = 0;
 
     std::atomic<float>* inputParam   = nullptr;
     std::atomic<float>* polishParam  = nullptr;

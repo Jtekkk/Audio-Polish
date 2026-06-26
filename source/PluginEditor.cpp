@@ -189,6 +189,19 @@ AudioPolishEditor::AudioPolishEditor (AudioPolishProcessor& p)
     osAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>
                        (p.getValueTreeState(), ParamID::oversampling, osBox);
 
+    // Factory preset selector (driven by the processor's program interface).
+    presetBox.setJustificationType (juce::Justification::centredLeft);
+    presetBox.setTextWhenNothingSelected ("Presets");
+    addAndMakeVisible (presetBox);
+    refreshPresetBox();
+    presetBox.onChange = [this]
+    {
+        const auto idx = presetBox.getSelectedId() - 1;
+        if (idx >= 0)
+            processor.setCurrentProgram (idx);
+    };
+    processor.addChangeListener (this);
+
     setSize (640, 420);
     setResizable (true, true);
     setResizeLimits (520, 340, 1100, 720);
@@ -196,7 +209,22 @@ AudioPolishEditor::AudioPolishEditor (AudioPolishProcessor& p)
 
 AudioPolishEditor::~AudioPolishEditor()
 {
+    processor.removeChangeListener (this);
     setLookAndFeel (nullptr);
+}
+
+void AudioPolishEditor::refreshPresetBox()
+{
+    presetBox.clear (juce::dontSendNotification);
+    for (int i = 0; i < processor.getNumPrograms(); ++i)
+        presetBox.addItem (processor.getProgramName (i), i + 1);   // ids are 1-based
+    presetBox.setSelectedId (processor.getCurrentProgram() + 1, juce::dontSendNotification);
+}
+
+void AudioPolishEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    // The processor switched program (e.g. from the host); reflect it.
+    presetBox.setSelectedId (processor.getCurrentProgram() + 1, juce::dontSendNotification);
 }
 
 void AudioPolishEditor::paint (juce::Graphics& g)
@@ -209,19 +237,15 @@ void AudioPolishEditor::paint (juce::Graphics& g)
 
     g.setColour (kText);
     g.setFont (juce::Font (juce::FontOptions (24.0f, juce::Font::bold)));
-    g.drawText ("AUDIO  POLISH", header.reduced (18, 0).withTrimmedRight (60),
+    g.drawText ("AUDIO  POLISH", header.reduced (18, 0).withTrimmedRight (220),
                 juce::Justification::centredLeft);
-
-    g.setColour (kAccent);
-    g.setFont (juce::Font (juce::FontOptions (12.0f)));
-    g.drawText ("one-knob finish", header.reduced (20, 0),
-                juce::Justification::centredRight);
 }
 
 void AudioPolishEditor::resized()
 {
     auto area = getLocalBounds();
-    area.removeFromTop (54);              // header
+    auto header = area.removeFromTop (54);
+    presetBox.setBounds (header.removeFromRight (200).reduced (12, 13));
     area.reduce (12, 12);
 
     // right-hand column: GR + output meters, oversampling selector, then bypass

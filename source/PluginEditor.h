@@ -54,7 +54,8 @@ private:
     float level = 0.0f; // smoothed 0..1 display range
 };
 
-class AudioPolishEditor : public juce::AudioProcessorEditor
+class AudioPolishEditor : public juce::AudioProcessorEditor,
+                          private juce::ChangeListener
 {
 public:
     explicit AudioPolishEditor (AudioPolishProcessor&);
@@ -64,8 +65,13 @@ public:
     void resized() override;
 
 private:
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void refreshPresetBox();
+
     AudioPolishProcessor& processor;
     PolishLookAndFeel lookAndFeel;
+
+    juce::ComboBox presetBox;
 
     LabeledKnob inputKnob, polishKnob, lowKnob, highKnob, tiltKnob,
                 driveKnob, glueKnob, widthKnob, ceilingKnob, outputKnob, mixKnob;

@@ -54,6 +54,32 @@ knob does the heavy lifting; the individual controls trim from there.
 | Oversampling | Off / 2× / 4× / 8× | Anti-aliasing for the saturator (CPU vs quality)     |
 | Bypass    | —                | Latency-compensated bypass                              |
 
+## Presets
+
+Six factory presets are exposed through the host's program/preset menu and the
+in-plugin **Presets** selector (top-right). They set the sonic parameters only —
+Oversampling and Bypass are left untouched.
+
+| Preset         | Character                                              |
+|----------------|--------------------------------------------------------|
+| Init / Flat    | Everything neutral — a clean starting point            |
+| Subtle Polish  | Gentle sheen and light glue                            |
+| Glue Bus       | Bus compression with a touch of low-end weight         |
+| Warm Master    | Saturated, rounded, slightly dark master tone          |
+| Wide & Bright  | Airy top end and a wider image                         |
+| Loud & Proud   | Pushed drive + glue with extra output                  |
+
+## Validation
+
+Every CI build runs [pluginval](https://github.com/Tracktion/pluginval) at
+strictness level 10 against the built VST3 (load, state, parameters, threading,
+bus layouts, editor, parameter fuzzing). A failure blocks the installer and any
+release. To run it locally:
+
+```bash
+pluginval --strictness-level 10 "build/AudioPolish_artefacts/Release/VST3/Audio Polish.vst3"
+```
+
 ## Building
 
 Requires CMake ≥ 3.22 and a C++17 compiler. JUCE is pulled in automatically via

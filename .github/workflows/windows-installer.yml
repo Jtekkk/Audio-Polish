@@ -68,6 +68,21 @@ jobs:
       - name: Build (Release)
         run: cmake --build build --parallel
 
+      # Host-style validation (load, state, parameters, threading, editor, etc.)
+      # before we package anything. A failure here blocks the installer/release.
+      - name: Download pluginval
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/Tracktion/pluginval/releases/download/v1.0.3/pluginval_Windows.zip" -OutFile pluginval.zip
+          Expand-Archive -Path pluginval.zip -DestinationPath pluginval -Force
+
+      - name: Validate VST3 (pluginval)
+        shell: pwsh
+        run: |
+          $vst3 = "build\AudioPolish_artefacts\Release\VST3\Audio Polish.vst3"
+          & ".\pluginval\pluginval.exe" --strictness-level 10 --timeout-ms 300000 "$vst3"
+          if ($LASTEXITCODE -ne 0) { throw "pluginval failed with exit code $LASTEXITCODE" }
+
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
 

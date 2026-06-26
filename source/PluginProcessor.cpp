@@ -147,6 +147,77 @@ void AudioPolishProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce
     processChain (buffer, doubleChain);
 }
 
+//==============================================================================
+// Factory presets. Each lists the sonic parameters it sets (in real units);
+// anything unlisted keeps its current value. Oversampling and bypass are
+// deliberately left untouched.
+namespace
+{
+    struct Preset
+    {
+        juce::String name;
+        std::vector<std::pair<juce::String, float>> values;
+    };
+
+    const std::vector<Preset>& getPresets()
+    {
+        using namespace ParamID;
+        static const std::vector<Preset> presets =
+        {
+            { "Init / Flat",
+              { { input, 0 }, { polish, 0 }, { low, 0 }, { high, 0 }, { tilt, 0 },
+                { drive, 0 }, { glue, 0 }, { width, 100 }, { ceiling, -0.3f },
+                { output, 0 }, { mix, 100 } } },
+
+            { "Subtle Polish",
+              { { polish, 25 }, { drive, 15 }, { glue, 20 }, { high, 1.0f },
+                { width, 105 }, { ceiling, -0.3f }, { mix, 100 } } },
+
+            { "Glue Bus",
+              { { polish, 30 }, { glue, 55 }, { drive, 15 }, { low, 1.0f },
+                { ceiling, -0.5f }, { width, 100 }, { mix, 100 } } },
+
+            { "Warm Master",
+              { { polish, 40 }, { drive, 35 }, { glue, 30 }, { low, 1.5f },
+                { high, 1.0f }, { tilt, -1.0f }, { width, 110 }, { ceiling, -0.3f } } },
+
+            { "Wide & Bright",
+              { { polish, 35 }, { drive, 20 }, { glue, 20 }, { high, 3.0f },
+                { tilt, 2.0f }, { width, 140 }, { ceiling, -0.3f } } },
+
+            { "Loud & Proud",
+              { { polish, 60 }, { drive, 40 }, { glue, 45 }, { output, 2.0f },
+                { width, 110 }, { ceiling, -0.2f }, { mix, 100 } } },
+        };
+        return presets;
+    }
+}
+
+int AudioPolishProcessor::getNumPrograms()            { return static_cast<int> (getPresets().size()); }
+int AudioPolishProcessor::getCurrentProgram()         { return currentProgram; }
+
+const juce::String AudioPolishProcessor::getProgramName (int index)
+{
+    if (juce::isPositiveAndBelow (index, getNumPrograms()))
+        return getPresets()[static_cast<size_t> (index)].name;
+    return {};
+}
+
+void AudioPolishProcessor::setCurrentProgram (int index)
+{
+    if (! juce::isPositiveAndBelow (index, getNumPrograms()))
+        return;
+
+    currentProgram = index;
+
+    for (const auto& [id, value] : getPresets()[static_cast<size_t> (index)].values)
+        if (auto* p = apvts.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (value));
+
+    updateHostDisplay();
+    sendChangeMessage();   // let the editor refresh its preset selector
+}
+
 juce::AudioProcessorEditor* AudioPolishProcessor::createEditor()
 {
     return new AudioPolishEditor (*this);
