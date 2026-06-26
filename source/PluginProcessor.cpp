@@ -28,8 +28,19 @@ void AudioPolishProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
     spec.maximumBlockSize = static_cast<juce::uint32> (samplesPerBlock);
     spec.numChannels      = static_cast<juce::uint32> (getTotalNumOutputChannels());
 
-    chain.prepare (spec);
-    setLatencySamples (chain.getLatencySamples());
+    // Prepare only the chain matching the host's requested precision; JUCE
+    // re-calls prepareToPlay if the precision changes. Both share the same
+    // oversampling latency.
+    if (isUsingDoublePrecision())
+    {
+        doubleChain.prepare (spec);
+        setLatencySamples (doubleChain.getLatencySamples());
+    }
+    else
+    {
+        floatChain.prepare (spec);
+        setLatencySamples (floatChain.getLatencySamples());
+    }
 }
 
 bool AudioPolishProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -44,9 +55,9 @@ bool AudioPolishProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
     return main == layouts.getMainInputChannelSet();
 }
 
-PolishChain::Settings AudioPolishProcessor::readSettings() const
+PolishSettings AudioPolishProcessor::readSettings() const
 {
-    PolishChain::Settings s;
+    PolishSettings s;
     s.inputDb   = inputParam->load();
     s.polish    = polishParam->load();
     s.lowDb     = lowParam->load();
@@ -61,8 +72,9 @@ PolishChain::Settings AudioPolishProcessor::readSettings() const
     return s;
 }
 
-void AudioPolishProcessor::processBlock (juce::AudioBuffer<float>& buffer,
-                                         juce::MidiBuffer&)
+template <typename Sample>
+void AudioPolishProcessor::processChain (juce::AudioBuffer<Sample>& buffer,
+                                         PolishChain<Sample>& chain)
 {
     juce::ScopedNoDenormals noDenormals;
 
@@ -78,6 +90,16 @@ void AudioPolishProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     chain.setSettings (readSettings());
     chain.process (buffer);
+}
+
+void AudioPolishProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    processChain (buffer, floatChain);
+}
+
+void AudioPolishProcessor::processBlock (juce::AudioBuffer<double>& buffer, juce::MidiBuffer&)
+{
+    processChain (buffer, doubleChain);
 }
 
 juce::AudioProcessorEditor* AudioPolishProcessor::createEditor()

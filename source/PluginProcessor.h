@@ -13,8 +13,9 @@ public:
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
-    using juce::AudioProcessor::processBlock; // keep the double-precision overload visible
-    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    bool supportsDoublePrecisionProcessing() const override { return true; }
+    void processBlock (juce::AudioBuffer<float>&,  juce::MidiBuffer&) override;
+    void processBlock (juce::AudioBuffer<double>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -36,14 +37,24 @@ public:
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& getValueTreeState() noexcept { return apvts; }
-    float getOutputLevel() const noexcept { return chain.getOutputLevel(); }
-    float getGainReduction() const noexcept { return chain.getGainReduction(); }
+    float getOutputLevel() const noexcept
+    {
+        return isUsingDoublePrecision() ? doubleChain.getOutputLevel() : floatChain.getOutputLevel();
+    }
+    float getGainReduction() const noexcept
+    {
+        return isUsingDoublePrecision() ? doubleChain.getGainReduction() : floatChain.getGainReduction();
+    }
 
 private:
-    PolishChain::Settings readSettings() const;
+    PolishSettings readSettings() const;
+
+    template <typename Sample>
+    void processChain (juce::AudioBuffer<Sample>&, PolishChain<Sample>&);
 
     juce::AudioProcessorValueTreeState apvts;
-    PolishChain chain;
+    PolishChain<float>  floatChain;
+    PolishChain<double> doubleChain;
 
     std::atomic<float>* inputParam   = nullptr;
     std::atomic<float>* polishParam  = nullptr;

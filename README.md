@@ -9,7 +9,7 @@ control underneath when you want it.
 ```
 Input gain
   -> Tone        (low shelf + high shelf, with a Tilt fold-in)
-  -> Drive       (asymmetric tanh saturation, 4x oversampled, DC-blocked)
+  -> Drive       (asymmetric tanh saturation, 8x oversampled, DC-blocked)
   -> Glue        (program-dependent compression)
   -> Width       (mid/side widening, low end kept mono as width increases)
   -> Output gain
@@ -22,8 +22,11 @@ knob does the heavy lifting; the individual controls trim from there.
 
 ### DSP quality notes
 
-- **Anti-aliased saturation** — the waveshaper runs inside a 4× oversampled,
+- **Anti-aliased saturation** — the waveshaper runs inside an 8× oversampled,
   linear-phase block, so the harmonics it generates don't fold back as aliasing.
+- **64-bit precision** — the entire chain is templated on sample type and runs in
+  full double precision when the host requests it (`supportsDoublePrecisionProcessing`),
+  falling back to 32-bit float otherwise.
 - **Even-harmonic warmth** — the saturator is mildly asymmetric (tube-like) rather
   than a pure odd-harmonic `tanh`; a DC blocker removes the resulting offset.
 - **Frequency-conscious width** — as Width goes past 100 %, the low end of the side
