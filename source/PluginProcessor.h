@@ -52,7 +52,7 @@ public:
 private:
     PolishSettings readSettings() const;
     int  oversamplingExponent() const noexcept;
-    void prepareChains();
+    void prepareChains (bool reportLatencyToHost = true);
 
     // Re-prepares the chain off the audio thread when the oversampling setting
     // changes (re-preparing allocates and alters latency).
@@ -69,6 +69,7 @@ private:
     double lastSampleRate = 0.0;
     int    lastBlockSize  = 0;
     int    currentProgram = 0;
+    int    preparedOs     = -1;   // oversampling exponent the chains are prepared for
 
     std::atomic<float>* inputParam   = nullptr;
     std::atomic<float>* polishParam  = nullptr;

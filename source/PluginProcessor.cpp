@@ -36,7 +36,7 @@ int AudioPolishProcessor::oversamplingExponent() const noexcept
     return juce::jlimit (0, 3, juce::roundToInt (osParam->load()));
 }
 
-void AudioPolishProcessor::prepareChains()
+void AudioPolishProcessor::prepareChains (bool reportLatencyToHost)
 {
     if (lastSampleRate <= 0.0)
         return;
@@ -47,20 +47,28 @@ void AudioPolishProcessor::prepareChains()
     spec.numChannels      = static_cast<juce::uint32> (getTotalNumOutputChannels());
 
     const auto os = oversamplingExponent();
+    preparedOs = os;
 
     // Prepare only the chain matching the host's requested precision; JUCE
     // re-calls prepareToPlay if the precision changes. Both share the same
-    // oversampling latency.
+    // oversampling latency. The chain's internal dry/bypass delays always track
+    // its own latency, so they stay aligned; we only push the latency to the
+    // host at prepareToPlay time (changing reported latency mid-stream makes
+    // some hosts re-initialise re-entrantly, which is unsafe during automation).
+    int latency = 0;
     if (isUsingDoublePrecision())
     {
         doubleChain.prepare (spec, os);
-        setLatencySamples (doubleChain.getLatencySamples());
+        latency = doubleChain.getLatencySamples();
     }
     else
     {
         floatChain.prepare (spec, os);
-        setLatencySamples (floatChain.getLatencySamples());
+        latency = floatChain.getLatencySamples();
     }
+
+    if (reportLatencyToHost)
+        setLatencySamples (latency);
 }
 
 void AudioPolishProcessor::parameterChanged (const juce::String& paramID, float)
@@ -73,15 +81,16 @@ void AudioPolishProcessor::parameterChanged (const juce::String& paramID, float)
 
 void AudioPolishProcessor::handleAsyncUpdate()
 {
-    if (lastSampleRate <= 0.0)
-        return;
+    if (lastSampleRate <= 0.0 || oversamplingExponent() == preparedOs)
+        return;   // nothing to do if the factor hasn't actually changed
 
-    // Re-preparing reallocates the oversampler and changes latency. Hold the
-    // callback lock so it can't race a concurrent processBlock — some hosts and
-    // validators (e.g. pluginval) call processBlock directly without honouring
-    // suspendProcessing, so that alone is not enough.
+    // Re-preparing reallocates the oversampler. Hold the callback lock so it
+    // can't race a concurrent processBlock — some hosts and validators call
+    // processBlock directly without honouring suspendProcessing. Latency is NOT
+    // re-reported here (see prepareChains): the host keeps the value from the
+    // last prepareToPlay, avoiding a re-entrant re-init during automation.
     const juce::ScopedLock sl (getCallbackLock());
-    prepareChains();
+    prepareChains (/*reportLatencyToHost*/ false);
 }
 
 void AudioPolishProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)

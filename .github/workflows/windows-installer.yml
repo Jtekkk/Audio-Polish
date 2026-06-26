@@ -80,8 +80,18 @@ jobs:
         shell: pwsh
         run: |
           $vst3 = "build\AudioPolish_artefacts\Release\VST3\Audio Polish.vst3"
-          & ".\pluginval\pluginval.exe" --strictness-level 10 --timeout-ms 300000 "$vst3"
-          if ($LASTEXITCODE -ne 0) { throw "pluginval failed with exit code $LASTEXITCODE" }
+          New-Item -ItemType Directory -Force -Path validation | Out-Null
+          & ".\pluginval\pluginval.exe" --strictness-level 10 --timeout-ms 300000 --verbose --output-dir validation "$vst3" 2>&1 | Tee-Object -FilePath validation\console.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) { throw "pluginval failed with exit code $code" }
+
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pluginval-logs
+          path: validation/**
+          if-no-files-found: ignore
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
