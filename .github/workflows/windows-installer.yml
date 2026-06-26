@@ -33,11 +33,22 @@ jobs:
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           Write-Host "Resolved version: $v"
 
-      - name: Configure (CMake + MSVC)
-        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+      # Set up MSVC explicitly rather than relying on a specific Visual Studio
+      # generator, which breaks whenever the hosted runner image bumps its VS
+      # version. msvc-dev-cmd + Ninja works with whatever MSVC the image ships.
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v6
+
+      - name: Configure (CMake + Ninja)
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build (Release)
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --parallel
 
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
