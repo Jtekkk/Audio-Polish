@@ -1,9 +1,11 @@
 #pragma once
 
 #include <juce_dsp/juce_dsp.h>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <memory>
+#include "LoudnessMeter.h"
 
 /**
     Parameter snapshot handed to the chain each block. Values mirror the
@@ -23,6 +25,9 @@ struct PolishSettings
     float ceilingDb = -0.3f;
     float outputDb  = 0.0f;
     float mix       = 100.0f;  // 0..100 dry/wet
+    bool  loudnessMatch = false; // gain-compensate the Bypass passthrough to match Polish's loudness
+    bool  ditherOn      = false; // TPDF dither before final output
+    int   ditherBits    = 16;    // target bit depth the dither noise is scaled for
 };
 
 /**
@@ -37,8 +42,9 @@ struct PolishSettings
           -> glue compression
           -> stereo width (mid/side, low end kept mono as width increases)
           -> output gain
-          -> ceiling limiter (brick-wall safety / loudness)
+          -> ceiling limiter (true-peak safe: runs inside a fixed 4x oversampled block)
           -> dry/wet mix (latency compensated)
+          -> optional TPDF dither
 
     A single "Polish" macro pushes drive, glue, top-end "air" and width together
     so one knob takes a source from flat to finished, while the individual
@@ -75,13 +81,31 @@ public:
             latencySamples = 0;
         }
 
+        // Fixed (always-on, not user-switchable) oversampling around the ceiling
+        // limiter so it acts on the reconstructed waveform: brick-walling the
+        // oversampled signal catches inter-sample ("true") peaks that a 1x
+        // limiter would let through. IIR polyphase keeps its added latency
+        // minimal, unlike the linear-phase FIR used for the Drive stage above.
+        ceilingOversampler = std::make_unique<juce::dsp::Oversampling<Sample>> (
+            spec.numChannels, 2,
+            juce::dsp::Oversampling<Sample>::filterHalfBandPolyphaseIIR,
+            true, false);
+        ceilingOversampler->initProcessing (spec.maximumBlockSize);
+        const auto ceilingFactor = static_cast<double> (ceilingOversampler->getOversamplingFactor());
+        const auto ceilingLatencySamples = static_cast<int> (std::round (ceilingOversampler->getLatencyInSamples()));
+        latencySamples += ceilingLatencySamples;
+
         inputGain.prepare (spec);
         outputGain.prepare (spec);
         makeupGain.prepare (spec);
         lowShelf.prepare (spec);
         highShelf.prepare (spec);
         compressor.prepare (spec);
-        limiter.prepare (spec);
+
+        auto ceilingSpec = spec;
+        ceilingSpec.sampleRate       = spec.sampleRate * ceilingFactor;
+        ceilingSpec.maximumBlockSize = spec.maximumBlockSize * static_cast<juce::uint32> (ceilingFactor);
+        limiter.prepare (ceilingSpec);
 
         inputGain.setRampDurationSeconds (0.02);
         outputGain.setRampDurationSeconds (0.02);
@@ -95,6 +119,10 @@ public:
         driveSmoothed.reset (sampleRate * oversamplingFactor, 0.02);
         widthSmoothed.reset (sampleRate, 0.02);
         mixSmoothed.reset (sampleRate, 0.02);
+        abGainSmoothed.reset (sampleRate, 0.1);
+
+        dryLoudness.prepare (sampleRate, numChannels);
+        wetLoudness.prepare (sampleRate, numChannels);
 
         bassMonoCoeff = static_cast<Sample> (1.0) - std::exp (static_cast<Sample> (-2.0)
                             * juce::MathConstants<Sample>::pi
@@ -127,12 +155,28 @@ public:
 
         if (oversampler != nullptr)
             oversampler->reset();
+        if (ceilingOversampler != nullptr)
+            ceilingOversampler->reset();
 
         for (auto& s : dcState) s = { Sample (0), Sample (0) };
         sideLowState = Sample (0);
 
+        dryLoudness.reset();
+        wetLoudness.reset();
+        abGainSmoothed.setCurrentAndTargetValue (Sample (0));
+
         outputLevel.store (0.0f);
         gainReduction.store (0.0f);
+        truePeakDb.store (-100.0f);
+        correlation.store (1.0f);
+        abGainOffsetDb.store (0.0f);
+    }
+
+    /** Clears the long-term LUFS-Integrated history (e.g. "start of song"). */
+    void resetLoudnessIntegration()
+    {
+        wetLoudness.resetIntegration();
+        dryLoudness.resetIntegration();
     }
 
     int getLatencySamples() const noexcept { return latencySamples; }
@@ -168,6 +212,10 @@ public:
         mixSmoothed.setTargetValue (static_cast<Sample> (juce::jlimit (0.0f, 1.0f, s.mix * 0.01f)));
 
         limiter.setThreshold (static_cast<Sample> (s.ceilingDb));
+
+        loudnessMatchEnabled = s.loudnessMatch;
+        ditherEnabled        = s.ditherOn;
+        ditherBitDepth       = s.ditherBits;
     }
 
     void process (juce::AudioBuffer<Sample>& buffer)
@@ -176,6 +224,7 @@ public:
         const auto chans      = juce::jmin (numChannels, buffer.getNumChannels());
 
         captureDelayedDry (buffer, chans, numSamples);
+        dryLoudness.process (dryBuffer.getArrayOfReadPointers(), chans, numSamples);
 
         juce::dsp::AudioBlock<Sample> block (buffer);
         juce::dsp::ProcessContextReplacing<Sample> ctx (block);
@@ -198,9 +247,16 @@ public:
 
         outputGain.process (ctx);
 
-        limiter.process (ctx);
+        applyCeiling (buffer);
 
         applyMix (buffer, chans, numSamples);
+
+        wetLoudness.process (buffer.getArrayOfReadPointers(), chans, numSamples);
+        updateAbGainOffset();
+        updateCorrelation (buffer, chans, numSamples);
+
+        if (ditherEnabled)
+            applyDither (buffer, chans, numSamples, ditherBitDepth);
 
         outputLevel.store (static_cast<float> (buffer.getMagnitude (0, numSamples)));
     }
@@ -222,6 +278,26 @@ public:
             }
         }
 
+        dryLoudness.process (buffer.getArrayOfReadPointers(), chans, numSamples);
+        updateCorrelation (buffer, chans, numSamples);
+
+        // Loudness-matched compare: gain-compensate the passthrough by the last
+        // measured Polish-vs-dry loudness difference, so flipping Bypass judges
+        // the processing itself rather than which side happens to be louder.
+        abGainSmoothed.setTargetValue (loudnessMatchEnabled
+                                            ? static_cast<Sample> (abGainOffsetDb.load())
+                                            : Sample (0));
+        for (int n = 0; n < numSamples; ++n)
+        {
+            const auto g = static_cast<Sample> (juce::Decibels::decibelsToGain (
+                               static_cast<float> (abGainSmoothed.getNextValue())));
+            for (int ch = 0; ch < chans; ++ch)
+                buffer.getWritePointer (ch)[n] *= g;
+        }
+
+        if (ditherEnabled)
+            applyDither (buffer, chans, numSamples, ditherBitDepth);
+
         outputLevel.store (static_cast<float> (buffer.getMagnitude (0, numSamples)));
         gainReduction.store (0.0f);
     }
@@ -231,6 +307,19 @@ public:
 
     /** Most recent compressor gain reduction in dB (<= 0), for metering. */
     float getGainReduction() const noexcept { return gainReduction.load(); }
+
+    /** True-peak (oversampled, post-limiter) reading in dBTP, held during Bypass. */
+    float getTruePeakDb() const noexcept { return truePeakDb.load(); }
+
+    /** Stereo phase correlation of the final output, -1 (out of phase) .. +1 (mono-safe). */
+    float getCorrelation() const noexcept { return correlation.load(); }
+
+    float getLufsMomentary()  const noexcept { return wetLoudness.getMomentary(); }
+    float getLufsShortTerm()  const noexcept { return wetLoudness.getShortTerm(); }
+    float getLufsIntegrated() const noexcept { return wetLoudness.getIntegrated(); }
+
+    /** Current Bypass loudness-match gain offset in dB, for display. */
+    float getAbGainOffsetDb() const noexcept { return abGainOffsetDb.load(); }
 
 private:
     using Filter = juce::dsp::IIR::Filter<Sample>;
@@ -325,6 +414,88 @@ private:
         }
     }
 
+    /** Runs the ceiling limiter inside the fixed 4x oversampled block so the
+        brick-wall threshold is enforced against the reconstructed waveform,
+        not just the sample peaks -- i.e. it's true-peak safe. Also captures
+        the post-limit true-peak reading used for metering. */
+    void applyCeiling (juce::AudioBuffer<Sample>& buffer)
+    {
+        juce::dsp::AudioBlock<Sample> block (buffer);
+        auto osBlock = ceilingOversampler->processSamplesUp (block);
+
+        juce::dsp::ProcessContextReplacing<Sample> osCtx (osBlock);
+        limiter.process (osCtx);
+
+        ceilingOversampler->processSamplesDown (block);
+
+        Sample peak = Sample (0);
+        const auto n = osBlock.getNumSamples();
+        const auto c = osBlock.getNumChannels();
+        for (size_t ch = 0; ch < c; ++ch)
+        {
+            const auto* data = osBlock.getChannelPointer (ch);
+            for (size_t i = 0; i < n; ++i)
+                peak = juce::jmax (peak, std::abs (data[i]));
+        }
+        truePeakDb.store (juce::Decibels::gainToDecibels (static_cast<float> (peak), -100.0f));
+    }
+
+    void updateAbGainOffset()
+    {
+        const auto dryL = dryLoudness.getShortTerm();
+        const auto wetL = wetLoudness.getShortTerm();
+
+        // Ignore near-silence so a quiet passage doesn't swing the offset wildly.
+        if (dryL > -60.0f && wetL > -60.0f)
+            abGainOffsetDb.store (juce::jlimit (-24.0f, 24.0f, dryL - wetL));
+    }
+
+    void updateCorrelation (const juce::AudioBuffer<Sample>& buffer, int chans, int numSamples)
+    {
+        if (chans < 2)
+        {
+            correlation.store (1.0f);
+            return;
+        }
+
+        const auto* l = buffer.getReadPointer (0);
+        const auto* r = buffer.getReadPointer (1);
+
+        double sumLR = 0.0, sumLL = 0.0, sumRR = 0.0;
+        for (int n = 0; n < numSamples; ++n)
+        {
+            const auto lv = static_cast<double> (l[n]);
+            const auto rv = static_cast<double> (r[n]);
+            sumLR += lv * rv;
+            sumLL += lv * lv;
+            sumRR += rv * rv;
+        }
+
+        const auto denom = std::sqrt (sumLL * sumRR);
+        const auto raw   = denom > 1.0e-9 ? static_cast<float> (juce::jlimit (-1.0, 1.0, sumLR / denom)) : 1.0f;
+
+        // Smoothed for a readable meter rather than a per-block flicker.
+        correlation.store (correlation.load() * 0.7f + raw * 0.3f);
+    }
+
+    void applyDither (juce::AudioBuffer<Sample>& buffer, int chans, int numSamples, int bitDepth)
+    {
+        const auto lsb = static_cast<Sample> (std::pow (2.0, -(bitDepth - 1)));
+
+        for (int ch = 0; ch < chans; ++ch)
+        {
+            auto* data = buffer.getWritePointer (ch);
+            auto& rng  = ditherRng[(size_t) juce::jmin (ch, 1)];
+
+            for (int n = 0; n < numSamples; ++n)
+            {
+                // Triangular PDF: sum of two independent uniform draws, range (-1, 1) LSB.
+                const auto d = rng.nextFloat() - rng.nextFloat();
+                data[n] += static_cast<Sample> (d) * lsb;
+            }
+        }
+    }
+
     void applyWidth (juce::AudioBuffer<Sample>& buffer)
     {
         if (buffer.getNumChannels() < 2)
@@ -392,6 +563,7 @@ private:
     juce::dsp::Compressor<Sample> compressor;
     juce::dsp::Limiter<Sample> limiter;
     std::unique_ptr<juce::dsp::Oversampling<Sample>> oversampler;
+    std::unique_ptr<juce::dsp::Oversampling<Sample>> ceilingOversampler;
 
     juce::dsp::DelayLine<Sample, juce::dsp::DelayLineInterpolationTypes::Linear> dryDelay { 256 };
     juce::dsp::DelayLine<Sample, juce::dsp::DelayLineInterpolationTypes::Linear> bypassDelay { 256 };
@@ -400,11 +572,22 @@ private:
     juce::SmoothedValue<Sample> driveSmoothed { static_cast<Sample> (0.2) };
     juce::SmoothedValue<Sample> widthSmoothed { static_cast<Sample> (1) };
     juce::SmoothedValue<Sample> mixSmoothed   { static_cast<Sample> (1) };
+    juce::SmoothedValue<Sample> abGainSmoothed { Sample (0) };
 
     std::array<DCBlocker, 2> dcState { { { Sample (0), Sample (0) }, { Sample (0), Sample (0) } } };
     Sample bassMonoCoeff = Sample (0);
     Sample sideLowState  = Sample (0);
 
-    std::atomic<float> outputLevel   { 0.0f };
-    std::atomic<float> gainReduction { 0.0f };
+    LoudnessMeter<Sample> dryLoudness, wetLoudness;
+    std::array<juce::Random, 2> ditherRng;
+
+    bool loudnessMatchEnabled = false;
+    bool ditherEnabled        = false;
+    int  ditherBitDepth       = 16;
+
+    std::atomic<float> outputLevel    { 0.0f };
+    std::atomic<float> gainReduction  { 0.0f };
+    std::atomic<float> truePeakDb     { -100.0f };
+    std::atomic<float> correlation    { 1.0f };
+    std::atomic<float> abGainOffsetDb { 0.0f };
 };

@@ -20,6 +20,9 @@ AudioPolishProcessor::AudioPolishProcessor()
     mixParam     = apvts.getRawParameterValue (ParamID::mix);
     osParam      = apvts.getRawParameterValue (ParamID::oversampling);
     bypassParam  = apvts.getRawParameterValue (ParamID::bypass);
+    abMatchParam    = apvts.getRawParameterValue (ParamID::abMatch);
+    ditherOnParam   = apvts.getRawParameterValue (ParamID::ditherOn);
+    ditherBitsParam = apvts.getRawParameterValue (ParamID::ditherBits);
 
     apvts.addParameterListener (ParamID::oversampling, this);
 }
@@ -126,6 +129,9 @@ PolishSettings AudioPolishProcessor::readSettings() const
     s.ceilingDb = ceilingParam->load();
     s.outputDb  = outputParam->load();
     s.mix       = mixParam->load();
+    s.loudnessMatch = abMatchParam->load() > 0.5f;
+    s.ditherOn      = ditherOnParam->load() > 0.5f;
+    s.ditherBits    = juce::roundToInt (ditherBitsParam->load()) == 0 ? 16 : 24;
     return s;
 }
 
@@ -254,6 +260,57 @@ void AudioPolishProcessor::setStateInformation (const void* data, int sizeInByte
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
+}
+
+//==============================================================================
+// User presets: the full APVTS state, saved as one XML file per preset under
+// the user's documents folder so they persist across plugin updates/hosts.
+juce::File AudioPolishProcessor::getUserPresetDirectory()
+{
+    auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                   .getChildFile ("Audio Polish")
+                   .getChildFile ("Presets");
+    dir.createDirectory();
+    return dir;
+}
+
+juce::StringArray AudioPolishProcessor::getUserPresetNames() const
+{
+    juce::StringArray names;
+    for (const auto& f : getUserPresetDirectory().findChildFiles (juce::File::findFiles, false, "*.xml"))
+        names.add (f.getFileNameWithoutExtension());
+    names.sort (true);
+    return names;
+}
+
+bool AudioPolishProcessor::saveUserPreset (const juce::String& name)
+{
+    if (name.isEmpty())
+        return false;
+
+    auto file = getUserPresetDirectory().getChildFile (juce::File::createLegalFileName (name) + ".xml");
+    if (auto state = apvts.copyState(); state.isValid())
+        if (auto xml = state.createXml())
+            return xml->writeTo (file);
+    return false;
+}
+
+bool AudioPolishProcessor::loadUserPreset (const juce::String& name)
+{
+    auto file = getUserPresetDirectory().getChildFile (juce::File::createLegalFileName (name) + ".xml");
+    if (! file.existsAsFile())
+        return false;
+
+    if (auto xml = juce::XmlDocument::parse (file))
+    {
+        if (xml->hasTagName (apvts.state.getType()))
+        {
+            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            updateHostDisplay();
+            return true;
+        }
+    }
+    return false;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

@@ -23,6 +23,9 @@ namespace ParamID
     inline constexpr auto mix          = "mix";
     inline constexpr auto oversampling = "oversampling";
     inline constexpr auto bypass       = "bypass";
+    inline constexpr auto abMatch      = "abMatch";
+    inline constexpr auto ditherOn     = "ditherOn";
+    inline constexpr auto ditherBits   = "ditherBits";
 }
 
 namespace AudioPolishParams
@@ -85,6 +88,17 @@ namespace AudioPolishParams
             juce::AudioParameterChoiceAttributes().withAutomatable (false).withMeta (true)));
 
         params.push_back (std::make_unique<APB> (ID { ParamID::bypass, version }, "Bypass", false));
+
+        // When on, Bypass's passthrough is gain-compensated to match Polish's
+        // recent loudness, so toggling it judges the processing rather than
+        // whichever side happens to be louder.
+        params.push_back (std::make_unique<APB> (ID { ParamID::abMatch, version }, "Loudness Match", false));
+
+        params.push_back (std::make_unique<APB> (ID { ParamID::ditherOn, version }, "Dither", false));
+
+        params.push_back (std::make_unique<APC> (
+            ID { ParamID::ditherBits, version }, "Dither Bit Depth",
+            juce::StringArray { "16-bit", "24-bit" }, 0));
 
         return { params.begin(), params.end() };
     }

@@ -26,6 +26,10 @@ knob does the heavy lifting; the individual controls trim from there.
   linear-phase oversampled block, so the harmonics it generates don't fold back as
   aliasing. Switching the factor (or Off) re-prepares the chain safely off the audio
   thread and updates the reported latency.
+- **True-peak-safe ceiling** — the Ceiling limiter runs inside its own fixed 4×
+  oversampled block (always on, independent of the Drive oversampling setting), so
+  it brick-walls the *reconstructed* waveform and catches inter-sample peaks a
+  1× limiter would let through.
 - **64-bit precision** — the entire chain is templated on sample type and runs in
   full double precision when the host requests it (`supportsDoublePrecisionProcessing`),
   falling back to 32-bit float otherwise.
@@ -33,8 +37,25 @@ knob does the heavy lifting; the individual controls trim from there.
   than a pure odd-harmonic `tanh`; a DC blocker removes the resulting offset.
 - **Frequency-conscious width** — as Width goes past 100 %, the low end of the side
   signal is progressively collapsed to mono so the bass stays centred and phase-safe.
-- **Latency reporting** — the oversampler's latency is reported to the host, and both
-  the dry/wet Mix path and Bypass are delay-compensated to stay sample-aligned.
+- **Latency reporting** — the oversamplers' combined latency is reported to the host,
+  and both the dry/wet Mix path and Bypass are delay-compensated to stay sample-aligned.
+- **Optional TPDF dither** — a triangular-PDF dither stage, scaled for 16- or 24-bit
+  output, can be switched on for the final render/bounce (see Dither below).
+
+### Metering
+
+- **LUFS-S / LUFS-I** — short-term and (gated) integrated loudness, using the
+  ITU-R BS.1770 K-weighting filter and the standard absolute/relative gating
+  algorithm. This is a practical mixing/mastering aid, not a certified
+  compliance meter. Click the LUFS-I readout to reset its history (e.g. at the
+  start of a song).
+- **True Peak** — the post-limiter peak measured in the same oversampled domain
+  the ceiling limiter runs in, so it reflects genuine inter-sample peaks (dBTP).
+- **Correlation** — a stereo phase-correlation meter (-1 out of phase, +1
+  mono-safe) so Width changes can be judged for mono compatibility at a glance.
+- **Loudness Match** — when enabled, toggling Bypass gain-compensates the dry
+  passthrough to match Polish's recently-measured loudness, so A/B comparisons
+  judge the processing itself rather than whichever side happens to be louder.
 
 ## Controls
 
@@ -52,6 +73,8 @@ knob does the heavy lifting; the individual controls trim from there.
 | Output    | −24…+24 dB       | Final trim before the ceiling limiter                   |
 | Mix       | 0…100 %          | Dry/wet blend (parallel "polish"), latency compensated  |
 | Oversampling | Off / 2× / 4× / 8× | Anti-aliasing for the saturator (CPU vs quality)     |
+| Dither    | On / Off, 16-bit / 24-bit | TPDF dither before the final output              |
+| Loudness Match | —           | Gain-compensates Bypass so A/B compares fairly          |
 | Bypass    | —                | Latency-compensated bypass                              |
 
 ## Presets
@@ -68,6 +91,15 @@ Oversampling and Bypass are left untouched.
 | Warm Master    | Saturated, rounded, slightly dark master tone          |
 | Wide & Bright  | Airy top end and a wider image                         |
 | Loud & Proud   | Pushed drive + glue with extra output                  |
+
+### User presets
+
+The **Save** button (top-right, next to the preset selector) saves the current
+knob settings as a named preset. User presets appear in the same selector,
+below a separator after the factory presets, and persist as XML files under:
+
+- `~/Documents/Audio Polish/Presets` (macOS/Linux)
+- `Documents\Audio Polish\Presets` (Windows)
 
 ## Validation
 
@@ -149,7 +181,8 @@ CMakeLists.txt          # build + JUCE fetch
 source/
   ParameterIDs.h        # parameter ids, ranges, defaults (single source of truth)
   PolishChain.h         # the DSP signal chain
-  PluginProcessor.*     # AudioProcessor + APVTS wiring
+  LoudnessMeter.h       # BS.1770 K-weighted LUFS-M/S/I meter
+  PluginProcessor.*     # AudioProcessor + APVTS wiring, user preset I/O
   PluginEditor.*        # GUI: look-and-feel, knobs, meters
 installer/
   AudioPolish.iss       # Inno Setup installer script (Windows)

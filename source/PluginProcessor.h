@@ -48,6 +48,41 @@ public:
     {
         return isUsingDoublePrecision() ? doubleChain.getGainReduction() : floatChain.getGainReduction();
     }
+    float getTruePeakDb() const noexcept
+    {
+        return isUsingDoublePrecision() ? doubleChain.getTruePeakDb() : floatChain.getTruePeakDb();
+    }
+    float getCorrelation() const noexcept
+    {
+        return isUsingDoublePrecision() ? doubleChain.getCorrelation() : floatChain.getCorrelation();
+    }
+    float getLufsMomentary() const noexcept
+    {
+        return isUsingDoublePrecision() ? doubleChain.getLufsMomentary() : floatChain.getLufsMomentary();
+    }
+    float getLufsShortTerm() const noexcept
+    {
+        return isUsingDoublePrecision() ? doubleChain.getLufsShortTerm() : floatChain.getLufsShortTerm();
+    }
+    float getLufsIntegrated() const noexcept
+    {
+        return isUsingDoublePrecision() ? doubleChain.getLufsIntegrated() : floatChain.getLufsIntegrated();
+    }
+    float getAbGainOffsetDb() const noexcept
+    {
+        return isUsingDoublePrecision() ? doubleChain.getAbGainOffsetDb() : floatChain.getAbGainOffsetDb();
+    }
+    void resetLoudnessIntegration() noexcept
+    {
+        doubleChain.resetLoudnessIntegration();
+        floatChain.resetLoudnessIntegration();
+    }
+
+    // ---- User presets: saved/loaded as APVTS-state XML files -----------------
+    static juce::File getUserPresetDirectory();
+    juce::StringArray getUserPresetNames() const;
+    bool saveUserPreset (const juce::String& name);
+    bool loadUserPreset (const juce::String& name);
 
 private:
     PolishSettings readSettings() const;
@@ -84,6 +119,9 @@ private:
     std::atomic<float>* mixParam     = nullptr;
     std::atomic<float>* osParam      = nullptr;
     std::atomic<float>* bypassParam  = nullptr;
+    std::atomic<float>* abMatchParam    = nullptr;
+    std::atomic<float>* ditherOnParam   = nullptr;
+    std::atomic<float>* ditherBitsParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPolishProcessor)
 };
